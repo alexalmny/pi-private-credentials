@@ -1,0 +1,8 @@
+node_modules/
+*.log
+.env
+coverage/
+# Never commit runtime vaults or browser profiles.
+vault.json
+private-credentials/
+chrome-profile/

@@ -1,0 +1,16 @@
+{
+  "name": "pi-private-credentials",
+  "version": "0.1.0",
+  "description": "Private TUI credential entry and encrypted, origin-bound browser autofill for Pi",
+  "type": "module",
+  "license": "MIT",
+  "keywords": ["pi-package"],
+  "engines": { "node": ">=22" },
+  "pi": { "extensions": ["./src/index.ts"] },
+  "scripts": { "test": "node --test test/*.test.mjs" },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-tui": "*"
+  }
+}
