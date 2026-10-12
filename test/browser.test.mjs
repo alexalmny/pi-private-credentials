@@ -29,6 +29,35 @@ test('preflight reads no input values; private fill invokes native setters and e
   assert.deepEqual(fixture.password.events, ['input', 'change']);
 });
 
+test('controlled forms keep both values when username events rerender the password input', () => {
+  const fixture = page();
+  let committedPassword = '';
+  fixture.username.dispatchEvent = () => { fixture.password.stored = committedPassword; };
+  fixture.password.dispatchEvent = () => { committedPassword = fixture.password.stored; };
+  assert.equal(fixture.invoke({ username: 'alice', password: 'test-secret' }), 'ok');
+  assert.equal(fixture.username.stored, 'alice');
+  assert.equal(fixture.password.stored, 'test-secret');
+});
+
+test('revalidate and resolve password inputs after username-triggered DOM changes', () => {
+  const replaced = page();
+  const replacement = new replaced.context.HTMLInputElement('password');
+  replaced.username.dispatchEvent = () => { replaced.fields['#password'] = [replacement]; };
+  assert.equal(replaced.invoke({ username: 'alice', password: 'test-secret' }), 'ok');
+  assert.equal(replacement.stored, 'test-secret');
+  assert.equal(replaced.password.stored, undefined);
+  for (const change of [
+    f => { f.password.type = 'text'; },
+    f => { f.context.location.origin = 'https://evil.example'; },
+    f => { f.password.form.action = 'https://evil.example/login'; },
+  ]) {
+    const fixture = page();
+    fixture.username.dispatchEvent = () => change(fixture);
+    assert.notEqual(fixture.invoke({ username: 'alice', password: 'test-secret' }), 'ok');
+    assert.equal(fixture.password.stored, undefined);
+  }
+});
+
 test('refuse navigated origins, non-password targets, hidden/ambiguous/disabled inputs and cross-origin actions', () => {
   const credentials = { username: 'alice', password: 'secret' };
   const run = change => { const fixture = page(); change(fixture); assert.notEqual(fixture.invoke(credentials), 'ok'); assert.equal(fixture.password.stored, undefined); };

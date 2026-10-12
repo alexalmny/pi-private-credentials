@@ -140,7 +140,7 @@ npm install --ignore-scripts
 npm test
 ```
 
-The tests cover encryption, authentication/tampering, permissions, multi-writer updates, origin/field checks, private rendering, Unicode/paste handling, cancellation, reuse policies, and redaction.
+The tests cover encryption, authentication/tampering, permissions, multi-writer updates, origin/field checks, controlled-form rerenders, private rendering, Unicode/paste handling, cancellation, reuse policies, and redaction.
 
 An optional real-Chrome integration check uses **random disposable test credentials** and a temporary self-signed HTTPS page:
 

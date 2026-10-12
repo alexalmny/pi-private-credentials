@@ -1,6 +1,6 @@
 {
   "name": "pi-private-credentials",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Private TUI credential entry and encrypted, origin-bound browser autofill for Pi",
   "type": "module",
   "license": "MIT",

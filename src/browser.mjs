@@ -121,9 +121,15 @@ export function fillFields(config, credential) {
     if (!password || (config.usernameSelector && !username)) return 'fields';
     if (!credential) return 'ok';
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-    if (username) setter.call(username, credential.username);
-    setter.call(password, credential.password);
-    for (const input of [username, password].filter(Boolean)) {
+    // Notify each field before writing the next: controlled forms can rerender other inputs.
+    for (const [selector, value, isPassword] of [
+      [config.usernameSelector, credential.username, false], [config.passwordSelector, credential.password, true],
+    ]) {
+      if (!selector) continue;
+      if (location.origin !== config.origin || location.protocol !== 'https:') return 'origin';
+      const input = find(selector, isPassword);
+      if (!input) return 'fields';
+      setter.call(input, value);
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
     }

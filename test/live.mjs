@@ -20,7 +20,16 @@ execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyo
   '-days', '1', '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1'], { stdio: 'ignore' });
 const server = createServer({ key: await readFile(key), cert: await readFile(cert) }, (_req, res) => {
   res.writeHead(200, { 'content-type': 'text/html' });
-  res.end('<form method="post"><label>Username<input id="username" type="email"></label><label>Password<input id="password" type="password"></label><button>Login</button></form>');
+  res.end(`<form method="post"><label>Username<input id="username" type="email"></label><label>Password<input id="password" type="password"></label><button>Login</button></form>
+    <script>
+      const state = { username: '', password: '' };
+      for (const input of document.querySelectorAll('input')) {
+        for (const event of ['input', 'change']) input.addEventListener(event, () => {
+          state[input.id] = input.value;
+          for (const field of document.querySelectorAll('input')) field.value = state[field.id];
+        });
+      }
+    </script>`);
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const origin = `https://127.0.0.1:${server.address().port}`;
