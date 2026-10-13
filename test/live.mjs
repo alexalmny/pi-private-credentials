@@ -52,17 +52,17 @@ try {
   const notifications = [];
   const ctx = { mode: 'tui', executeTool() { throw new Error('Secrets must never use nested tools.'); }, ui: {
     notify(text) { notifications.push(text); },
-    async select(_title, options) { approvals++; return options[0]; },
-    async confirm() { return true; },
     async custom(factory) {
-      prompts++;
       return new Promise(resolve => {
-        const component = factory({ requestRender() {} }, { fg(_color, text) { return text; } }, {}, resolve);
+        const component = factory({ terminal: { rows: 40 }, requestRender() {} },
+          { fg(_color, text) { return text; }, bg(_color, text) { return text; }, bold(text) { return text; } }, {}, resolve);
+        if (component.list) { approvals++; component.handleInput('\r'); return; }
+        prompts++;
         const values = formValues ?? (component.allowRemember ? [username, password] : component.inputs.map(() => master));
-        values.forEach((value, i) => { component.handleInput(value); if (i < values.length - 1) component.handleInput('\t'); });
-        if (component.allowRemember && rememberEntry) { component.handleInput('\t'); component.handleInput(' '); }
+        values.forEach(value => { component.handleInput(value); component.handleInput('\r'); });
+        if (component.allowRemember && rememberEntry) { component.handleInput('\x1b[A'); component.handleInput(' '); component.handleInput('\r'); }
         const rendered = component.render(80).join('\n');
-        values.forEach((value, index) => { if (component.inputs[index].hidden) assert.ok(!rendered.includes(value)); });
+        values.forEach(value => assert.ok(!rendered.includes(value), 'review must not render any entered value'));
         component.handleInput('\r');
       });
     },

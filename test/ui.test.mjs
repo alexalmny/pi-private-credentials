@@ -4,7 +4,7 @@ import { MaskedInput, PrivateDialog } from '../src/private-ui.ts';
 import { Redactor, needsApproval } from '../src/redact.ts';
 import { visibleWidth } from '@earendil-works/pi-tui';
 const tui = { requestRender() {} };
-const theme = { fg(_color, text) { return text; } };
+const theme = { fg(_color, text) { return text; }, bg(_color, text) { return text; }, bold(text) { return text; } };
 
 test('secret rendering is always masked; Unicode editing and bracketed paste preserve data', () => {
   const input = new MaskedInput(); input.focused = true;
@@ -31,7 +31,9 @@ test('dialog remembers only when toggled; no rendered credential; disposal and c
   dialog.handleInput('alice'); dialog.handleInput('\t'); dialog.handleInput('secret');
   assert.ok(!dialog.render(80).join('\n').includes('alice'));
   assert.ok(!dialog.render(80).join('\n').includes('secret'));
-  dialog.handleInput('\t'); dialog.handleInput(' '); dialog.handleInput('\r');
+  dialog.handleInput('\r'); // Enter advances the password tab to review; it never fills early.
+  assert.equal(result, undefined);
+  dialog.handleInput('\x1b[A'); dialog.handleInput(' '); dialog.handleInput('\r'); dialog.handleInput('\r');
   assert.deepEqual(result, { values: ['alice', 'secret'], remember: true });
   assert.ok(dialog.inputs.every(input => input.value === ''));
   let cancelled = false;
@@ -55,11 +57,14 @@ test('named fields choose visible or masked entry; all requested fields must be 
   const dialog = new PrivateDialog(tui, theme, value => { result = value; }, 'https://example.com', [
     { label: 'Account', hidden: false }, { label: 'Verification code (temporary)', hidden: true },
   ]);
-  dialog.handleInput('VisibleAccount'); dialog.handleInput('\t');
+  dialog.handleInput('VisibleAccount');
   assert.ok(dialog.render(80).join('\n').includes('VisibleAccount'));
+  dialog.handleInput('\t');
   dialog.handleInput('\r'); assert.equal(result, undefined);
   dialog.handleInput('private-code');
   assert.ok(!dialog.render(80).join('\n').includes('private-code'));
+  dialog.handleInput('\r');
+  assert.ok(!dialog.render(80).join('\n').includes('VisibleAccount'), 'review shows statuses, never values');
   dialog.handleInput('\r'); assert.deepEqual(result, { values: ['VisibleAccount', 'private-code'], remember: false });
   assert.ok(dialog.inputs.every(input => input.value === ''));
 });

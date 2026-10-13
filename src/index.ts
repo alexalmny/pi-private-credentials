@@ -6,7 +6,7 @@ import { defineTool, getAgentDir, type ExtensionAPI, type ExtensionContext } fro
 // Pi reloads .ts helpers; native .mjs imports otherwise keep stale code across /reload.
 import { Vault, exactOrigin, MODES } from './vault.ts';
 import { pageTargets, CDP, FillError } from './browser.ts';
-import { privatePrompt } from './private-ui.ts';
+import { privatePrompt, privateSelect, privateConfirm } from './private-ui.ts';
 import { Redactor, needsApproval } from './redact.ts';
 import { validateFields, savedFields } from './fields.ts';
 
@@ -34,8 +34,9 @@ export default function (pi: ExtensionAPI) {
   async function unlock(ctx: ExtensionContext, signal?: AbortSignal) {
     if (vault.unlocked) return true;
     const existing = await vault.exists();
-    const entry = await privatePrompt(ctx, existing ? 'Unlock encrypted credential bank' : 'Create vault: choose a strong master passphrase (12+ characters)',
-      existing ? ['Master passphrase'] : ['Master passphrase', 'Repeat master passphrase'], false, signal);
+    const entry = await privatePrompt(ctx, existing ? 'Unlock encrypted credential bank\nYour master passphrase is never stored.' : 'Create vault: choose a master passphrase (12+ characters)\nYour master passphrase is never stored.',
+      (existing ? ['Master passphrase'] : ['Master passphrase', 'Repeat master passphrase']).map(label => ({ label, hidden: true, temporary: true })),
+      false, signal, existing ? 'Unlock vault' : 'Create vault');
     if (!entry) return false;
     try {
       if (!existing && entry.values[0] !== entry.values[1]) throw new Error('Master passphrases did not match.');
@@ -63,7 +64,7 @@ export default function (pi: ExtensionAPI) {
       let saved = savedFields(data, origin, fields);
       const found = saved.filter(Boolean);
       if (found.some(field => needsApproval(data.mode, approved, field.id))) {
-        const choice = await ctx.ui.select(`Reuse remembered fields at ${origin}?\n${found.map(field => localLabel(field.label)).join(', ')}`,
+        const choice = await privateSelect(ctx, `Reuse remembered fields at ${origin}?\n${found.map(field => localLabel(field.label)).join(', ')}`,
           ['Use remembered fields', 'Enter all fields again', 'Cancel'], { signal });
         if (!choice || choice === 'Cancel') return result('Private form fill cancelled.');
         if (choice === 'Enter all fields again') saved = fields.map(() => undefined);
@@ -73,7 +74,7 @@ export default function (pi: ExtensionAPI) {
       let savedIds: string[] = [];
       if (missing.length) {
         const entry = await privatePrompt(ctx, `Verified website: ${origin}\nTemporary fields are never saved. Enter fills only; no submission.`,
-          missing.map(field => ({ label: `${field.label} (${field.temporary ? 'temporary: never saved' : 'eligible for Remember'}; ${field.hidden ? 'masked' : 'visible'})`, hidden: field.hidden })),
+          missing.map(field => ({ label: field.label, hidden: field.hidden, temporary: field.temporary })),
           missing.some(field => !field.temporary), signal);
         if (!entry) return result('Private form fill cancelled.');
         missing.forEach((field, index) => { values[field.index] = entry.values[index]; });
@@ -133,13 +134,13 @@ export default function (pi: ExtensionAPI) {
         let account = accounts[0];
         if (accounts.length > 1) {
           const choices = accounts.map((a, i) => `${i + 1}. ${localLabel(a.username) || '(no username)'}`);
-          const choice = await ctx.ui.select(`Saved accounts for ${origin}`, [...choices, 'Enter a different account'], { signal });
+          const choice = await privateSelect(ctx, `Saved accounts for ${origin}`, [...choices, 'Enter a different account'], { signal });
           if (!choice) return result('Credential fill cancelled.');
           account = accounts[choices.indexOf(choice)];
         }
         if (account) {
           if (needsApproval(data.mode, approved, account.id)) {
-            const choice = await ctx.ui.select(`Fill ${localLabel(account.username) || 'saved account'} into ${origin}?`, ['Use saved account', 'Enter a different account', 'Cancel'], { signal });
+            const choice = await privateSelect(ctx, `Fill ${localLabel(account.username) || 'saved account'} into ${origin}?`, ['Use saved account', 'Enter a different account', 'Cancel'], { signal });
             if (!choice || choice === 'Cancel') return result('Credential fill cancelled.');
             if (choice === 'Enter a different account') account = undefined;
           }
@@ -184,16 +185,16 @@ export default function (pi: ExtensionAPI) {
       if (ctx.mode !== 'tui') { ctx.ui.notify('Use an interactive Pi terminal for credentials.', 'error'); return; }
       if (args.trim() === 'lock') { lock(); ctx.ui.notify('Vault locked; session approvals and output redaction memory cleared.', 'info'); return; }
       try {
-        const action = await ctx.ui.select('Private credentials', ['Unlock / manage saved entries', 'Approval settings', 'Lock']);
+        const action = await privateSelect(ctx, 'Manage encrypted vault', ['Unlock / manage saved entries', 'Approval settings', 'Lock']);
         if (!action) return;
         if (action === 'Lock') { lock(); return; }
         if (!await unlock(ctx)) return;
         if (action === 'Approval settings') {
           const choices = ['ask — confirm every saved fill (default)', 'session — approve each saved account/field once per session', 'yolo — always allow saved fills'];
-          const choice = await ctx.ui.select('Reuse policy (saved credentials only)', choices);
+          const choice = await privateSelect(ctx, 'Reuse policy (saved credentials only)', choices);
           if (!choice) return;
           const mode = MODES[choices.indexOf(choice)];
-          if (mode !== 'ask' && !await ctx.ui.confirm('Reduce credential approval?', 'A website prompt can trigger saved fills without a new confirmation. Exact-origin checks still apply.')) return;
+          if (mode !== 'ask' && !await privateConfirm(ctx, 'Reduce credential approval?', 'A website prompt can trigger saved fills without a new confirmation. Exact-origin checks still apply.')) return;
           await vault.mutate(data => { data.mode = mode; });
           approved.clear();
           ctx.ui.notify(`Saved credential approval: ${mode}`, 'info');
@@ -206,10 +207,10 @@ export default function (pi: ExtensionAPI) {
         ];
         if (!entries.length) { ctx.ui.notify('Vault unlocked. No remembered accounts or fields yet.', 'info'); return; }
         const choices = entries.map((entry, index) => `${index + 1}. ${entry.label}`);
-        const choice = await ctx.ui.select('Choose an account or field to forget (secret values are never displayed)', choices);
+        const choice = await privateSelect(ctx, 'Choose an account or field to forget (secret values are never displayed)', choices);
         if (!choice) return;
         const id = entries[choices.indexOf(choice)].id;
-        if (await ctx.ui.confirm('Forget this saved entry?', 'Deletes it from the vault, not browser cookies or backups.')) {
+        if (await privateConfirm(ctx, 'Forget this saved entry?', 'Deletes it from the vault, not browser cookies or backups.')) {
           await vault.mutate(data => {
             data.accounts = data.accounts.filter(account => account.id !== id);
             if (data.fields) data.fields = data.fields.filter(field => field.id !== id);

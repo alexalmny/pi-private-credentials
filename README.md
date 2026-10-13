@@ -85,7 +85,7 @@ Example model-facing arguments (no entered values):
 - `hidden`: show `****` in the private terminal dialog when true; normal visible typing when false. Actual password inputs require true. Visible entry is still local, not returned in tool results.
 - `temporary`: never save or reuse this value. Always true for verification codes and one-time data. False means **eligible** for saving, not permission to save automatically.
 
-Requests support 1–12 uniquely named/selected fields. Each requested field needs a nonempty value. Large dialogs display the focused field; Tab cycles through every field for entry/review. Entry is single-line, including when the target is a textarea. Checkboxes, dropdowns, file uploads, and other non-text controls are not secret-entry fields; use ordinary browser tools for those.
+Requests support 1–12 uniquely named/selected fields. Each requested field needs a nonempty value. Dialogs display one focused field at a time; Tab cycles through every field and the review step. Entry is single-line, including when the target is a textarea. Checkboxes, dropdowns, file uploads, and other non-text controls are not secret-entry fields; use ordinary browser tools for those.
 
 Existing calls remain compatible (do not combine this format with `fields`):
 
@@ -97,7 +97,19 @@ Existing calls remain compatible (do not combine this format with `fields`):
 }
 ```
 
-Legacy username/password dialogs mask both fields; flexible dialogs follow each field's `hidden` flag and show whether it is temporary. **Tab / Shift+Tab** changes fields; **Space** toggles Remember when its checkbox is focused; **Enter** approves entry and filling; **Esc** cancels. Arrow keys, Home/End, Backspace/Delete, Ctrl+A/E/U, Unicode, and bracketed paste are supported. A paste containing control characters is rejected rather than silently changing your password. Never type credentials into the ordinary chat editor.
+### Private terminal UI
+
+The dialogs follow the installed RPIV question/todo design language: an **inline editor-slot panel**, accent-colored horizontal rules, a compact badge, muted tree context, highlighted field tabs, completion markers, numbered approval choices, and dim keyboard hints. They use Pi's active theme, not hard-coded colors or an RPIV runtime dependency. If another overlay is open, the private panel stacks visibly above it instead of taking input underneath it.
+
+Legacy username/password dialogs mask both fields; flexible dialogs follow each field's `hidden` flag and clearly show temporary/storage status. Review shows field names and completion status **without redisplaying any entered value**, including visible entries.
+
+- **Enter** validates the current field and advances to the next field or review. It never fills straight from a field editor.
+- **Tab / Shift+Tab** switches between fields and review.
+- On review, **↑/↓** selects Remember, the explicit **Fill fields** / **Unlock vault** / **Create vault** action, or Cancel. **Space** toggles Remember only when its checkbox is selected; it starts off. **Enter** on that checkbox moves to the action without toggling consent.
+- **Enter** on the final action confirms the private operation. **Esc / Ctrl+C** cancels and clears entry buffers.
+- Approval and management menus use **↑/↓**, **Enter**, and type-to-filter; destructive confirmations default to **Cancel**.
+
+Arrow keys, Home/End, Backspace/Delete, Ctrl+A/E/U, Unicode, and bracketed paste remain supported inside fields. A paste containing control characters is rejected rather than silently changing your password. Layouts keep the focused editor/control inside the terminal row budget; terminals too small to show the verified context safely request a resize and refuse blind entry. Never type credentials into the ordinary chat editor.
 
 ### Remember
 
@@ -163,7 +175,7 @@ npm install --ignore-scripts
 npm test
 ```
 
-The tests cover encryption, authentication/tampering, permissions, multi-writer updates, origin/field checks, controlled-form rerenders, visible/masked rendering, Unicode/paste handling, cancellation, reuse policies, redaction, legacy compatibility, temporary-field non-storage/non-reuse, secret-free refusal reasons, and Pi-style helper reloads. Refusals now identify the actual failed check; page-generated exception strings remain suppressed.
+The tests cover encryption, authentication/tampering, permissions, multi-writer updates, origin/field checks, controlled-form rerenders, visible/masked rendering, Unicode/paste handling, cancellation, reuse policies, redaction, legacy compatibility, temporary-field non-storage/non-reuse, secret-free refusal reasons, Pi-style helper reloads, themed inline/review layouts, focused scrolling, overlay stacking, resize protection, and approval-menu cancellation. Refusals now identify the actual failed check; page-generated exception strings remain suppressed.
 
 An optional real-Chrome integration check uses **random disposable test credentials** and a temporary self-signed HTTPS page:
 
