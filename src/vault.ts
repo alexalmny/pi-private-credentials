@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { randomBytes, randomUUID, scrypt, createCipheriv, createDecipheriv } from 'node:crypto';
 import { promisify } from 'node:util';
 
-import { validateFields, fieldKey } from './fields.mjs';
+import { validateFields, fieldKey } from './fields.ts';
 
 const derive = promisify(scrypt);
 const AAD = Buffer.from('pi-private-credentials:v1:scrypt-32768-8-1');

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, stat, chmod, rm, mkdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Vault, exactOrigin } from '../src/vault.mjs';
+import { Vault, exactOrigin } from '../src/vault.ts';
 
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'pi-vault-test-'));

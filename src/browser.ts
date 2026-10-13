@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { exactOrigin } from './vault.mjs';
+import { exactOrigin } from './vault.ts';
 
 function loopback(value, protocol) {
   const url = new URL(value);
@@ -29,6 +29,27 @@ export async function pageTargets(profile, origin) {
     if (ws.port !== port || !ws.pathname.startsWith('/devtools/page/')) throw new Error('Invalid Chrome page endpoint.');
     return { id: target.id, ws: ws.href };
   });
+}
+
+const FILL_ERRORS = new Map([
+  ['origin', 'the document left the approved HTTPS origin'],
+  ['selector', 'a selector does not match exactly one input'],
+  ['unavailable', 'an input is hidden, disabled, or read-only'],
+  ['type', 'an input is not an allowed text/password control'],
+  ['masking', 'a password input must use hidden:true'],
+  ['action', 'a form action leaves the approved HTTPS origin'],
+  ['alias', 'two fields resolve to the same input'],
+  ['values', 'the private value count/types do not match the requested fields'],
+  ['mismatch', 'the page changed or discarded an entered value'],
+  ['failed', 'the private page operation failed'],
+]);
+
+export class FillError extends Error {
+  constructor(reason) {
+    const safeReason = FILL_ERRORS.has(reason) ? reason : 'failed';
+    super(`Fill refused: ${FILL_ERRORS.get(safeReason)}.`);
+    this.reason = safeReason;
+  }
 }
 
 export class CDP {
@@ -97,7 +118,7 @@ export class CDP {
     });
     // Never propagate exception descriptions, remote objects, or page-generated strings.
     if (result.exceptionDetails || result.result?.value !== 'ok')
-      throw new Error('Fill refused: origin changed, fields are ambiguous/unavailable, or form action is not same-origin HTTPS.');
+      throw new FillError(result.exceptionDetails ? 'failed' : result.result?.value);
   }
 }
 
@@ -110,30 +131,34 @@ export function fillFields(config, credential) {
       ...(config.usernameSelector ? [{ selector: config.usernameSelector, hidden: true }] : []),
       { selector: config.passwordSelector, hidden: true, mustBePassword: true },
     ];
+    let refusal = 'selector';
+    const reject = reason => { refusal = reason; return null; };
     const find = field => {
       const selector = field.selector;
       const matches = document.querySelectorAll(selector);
-      if (matches.length !== 1) return null;
+      if (matches.length !== 1) return reject('selector');
       const input = matches[0];
       const textArea = typeof HTMLTextAreaElement !== 'undefined' && input instanceof HTMLTextAreaElement;
-      if (!(input instanceof HTMLInputElement) && !textArea) return null;
-      if (input.disabled || input.readOnly || !input.getClientRects().length || getComputedStyle(input).visibility !== 'visible' ||
-          (field.mustBePassword ? input.type !== 'password' : !textArea && !['text', 'email', 'tel', 'password', 'number', 'url', 'search'].includes(input.type)) ||
-          (input.type === 'password' && !field.hidden)) return null;
-      if (input.form && new URL(input.form.action, location.href).origin !== config.origin) return null;
+      if (!(input instanceof HTMLInputElement) && !textArea) return reject('type');
+      if (input.disabled || input.readOnly || !input.getClientRects().length || getComputedStyle(input).visibility !== 'visible') return reject('unavailable');
+      if (field.mustBePassword ? input.type !== 'password' : !textArea && !['text', 'email', 'tel', 'password', 'number', 'url', 'search'].includes(input.type)) return reject('type');
+      if (input.type === 'password' && !field.hidden) return reject('masking');
+      if (input.form && new URL(input.form.action, location.href).origin !== config.origin) return reject('action');
       return input;
     };
     const inputs = fields.map(find);
-    if (!inputs.length || inputs.some(input => !input) || new Set(inputs).size !== inputs.length) return 'fields';
+    if (!inputs.length || inputs.some(input => !input)) return refusal;
+    if (new Set(inputs).size !== inputs.length) return 'alias';
     if (!credential) return 'ok';
     const values = config.fields ? credential.values : (config.usernameSelector ? [credential.username, credential.password] : [credential.password]);
-    if (!Array.isArray(values) || values.length !== fields.length || values.some(value => typeof value !== 'string')) return 'fields';
+    if (!Array.isArray(values) || values.length !== fields.length || values.some(value => typeof value !== 'string')) return 'values';
     const written = new Set();
     // Notify each field before writing the next: controlled forms can rerender other inputs.
     for (const [index, field] of fields.entries()) {
       if (location.origin !== config.origin || location.protocol !== 'https:') return 'origin';
       const input = find(field);
-      if (!input || written.has(input)) return 'fields';
+      if (!input) return refusal;
+      if (written.has(input)) return 'alias';
       written.add(input);
       const prototype = input instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
       Object.getOwnPropertyDescriptor(prototype, 'value').set.call(input, values[index]);
@@ -141,6 +166,11 @@ export function fillFields(config, credential) {
       input.dispatchEvent(new Event('change', { bubbles: true }));
     }
     if (location.origin !== config.origin || location.protocol !== 'https:') return 'origin';
-    return fields.every((field, index) => find(field)?.value === values[index]) ? 'ok' : 'fields';
+    for (const [index, field] of fields.entries()) {
+      const input = find(field);
+      if (!input) return refusal;
+      if (input.value !== values[index]) return 'mismatch';
+    }
+    return 'ok';
   } catch { return 'failed'; }
 }

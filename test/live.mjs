@@ -7,7 +7,7 @@ import { createServer } from 'node:https';
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import extension from '../src/index.ts';
-import { Vault } from '../src/vault.mjs';
+import { Vault } from '../src/vault.ts';
 
 if (!process.env.PI_CREDENTIALS_TEST_PUPPETEER) throw new Error('Set PI_CREDENTIALS_TEST_PUPPETEER to a module exporting puppeteer.');
 const { puppeteer } = await import(process.env.PI_CREDENTIALS_TEST_PUPPETEER);

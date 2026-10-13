@@ -3,11 +3,12 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from '@earendil-works/pi-ai';
 import { defineTool, getAgentDir, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
-import { Vault, exactOrigin, MODES } from './vault.mjs';
-import { pageTargets, CDP } from './browser.mjs';
-import { privatePrompt } from './private-ui.mjs';
-import { Redactor, needsApproval } from './redact.mjs';
-import { validateFields, savedFields } from './fields.mjs';
+// Pi reloads .ts helpers; native .mjs imports otherwise keep stale code across /reload.
+import { Vault, exactOrigin, MODES } from './vault.ts';
+import { pageTargets, CDP, FillError } from './browser.ts';
+import { privatePrompt } from './private-ui.ts';
+import { Redactor, needsApproval } from './redact.ts';
+import { validateFields, savedFields } from './fields.ts';
 
 type FormField = { label: string; selector: string; hidden: boolean; temporary: boolean };
 
@@ -167,7 +168,9 @@ export default function (pi: ExtensionAPI) {
       } catch (error) {
         // Only extension-owned errors reach the local UI; never return browser/crypto exceptions to the model.
         ctx.ui.notify(redactor.text(error instanceof Error ? error.message : 'Private credential operation failed.'), 'error');
-        return { ...result('Credential fill failed. Ask the user to check the local credential dialog/configuration; no secret is included in this result.'), isError: true };
+        return { ...result(error instanceof FillError ?
+          `${error.message} No secret is included in this result.` :
+          'Credential fill failed. Ask the user to check the local credential dialog/configuration; no secret is included in this result.'), isError: true };
       } finally {
         browser?.close();
         if (credential) { credential.username = ''; credential.password = ''; }

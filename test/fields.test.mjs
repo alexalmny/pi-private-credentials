@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateFields, savedFields } from '../src/fields.mjs';
+import { validateFields, savedFields } from '../src/fields.ts';
 
 const reusable = { label: 'Account ID', selector: '#account', hidden: false, temporary: false };
 

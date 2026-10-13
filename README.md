@@ -6,7 +6,7 @@ A Pi TUI extension that lets the agent request named form fields **without putti
 
 ## Install
 
-Requires Node.js 22+, current `@earendil-works/pi-coding-agent`, interactive Pi TUI, and a local Chrome DevTools MCP browser. Not compatible with Telegram, print mode, or RPC credential dialogs.
+Requires Node.js 22.6+, current `@earendil-works/pi-coding-agent`, interactive Pi TUI, and a local Chrome DevTools MCP browser. Not compatible with Telegram, print mode, or RPC credential dialogs.
 
 ```sh
 # Private repository: your git client needs GitHub access.
@@ -54,7 +54,7 @@ Keep an explicit `--userDataDir` in the same argument list, for example:
 
 Retain any existing platform-specific flags (`--executablePath`, viewport, etc.). Use a **dedicated browser profile**, not your personal desktop profile. Do not publish/forward the debugging port.
 
-Run `/reload` or restart Pi after installing/configuring. An already-running browser must restart with the new flags. Navigate with Chrome MCP once before requesting credentials: MCP starts its browser lazily.
+Run `/reload` or restart Pi after installing/configuring. Version 0.2.1 uses `.ts` helpers so Pi refreshes the whole extension on reload; earlier `.mjs` helpers could remain cached even after the tool schema updated. An already-running browser must restart with the new flags. Navigate with Chrome MCP once before requesting credentials: MCP starts its browser lazily.
 
 The extension reads the actual ephemeral port from that profile's `DevToolsActivePort` file. If your server name/configuration differs, or you use a project-level override, set `PI_CREDENTIALS_CHROME_PROFILE` to the absolute profile directory before starting Pi. The default discovery reads only the user-level `chrome-devtools` configuration.
 
@@ -163,7 +163,7 @@ npm install --ignore-scripts
 npm test
 ```
 
-The tests cover encryption, authentication/tampering, permissions, multi-writer updates, origin/field checks, controlled-form rerenders, visible/masked rendering, Unicode/paste handling, cancellation, reuse policies, redaction, legacy compatibility, and temporary-field non-storage/non-reuse.
+The tests cover encryption, authentication/tampering, permissions, multi-writer updates, origin/field checks, controlled-form rerenders, visible/masked rendering, Unicode/paste handling, cancellation, reuse policies, redaction, legacy compatibility, temporary-field non-storage/non-reuse, secret-free refusal reasons, and Pi-style helper reloads. Refusals now identify the actual failed check; page-generated exception strings remain suppressed.
 
 An optional real-Chrome integration check uses **random disposable test credentials** and a temporary self-signed HTTPS page:
 

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MaskedInput, PrivateDialog } from '../src/private-ui.mjs';
-import { Redactor, needsApproval } from '../src/redact.mjs';
+import { MaskedInput, PrivateDialog } from '../src/private-ui.ts';
+import { Redactor, needsApproval } from '../src/redact.ts';
 import { visibleWidth } from '@earendil-works/pi-tui';
 const tui = { requestRender() {} };
 const theme = { fg(_color, text) { return text; } };

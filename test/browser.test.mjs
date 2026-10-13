@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { fillFields, CDP } from '../src/browser.mjs';
+import { fillFields, CDP, FillError } from '../src/browser.ts';
 
 function page() {
   class Input {
@@ -96,6 +96,20 @@ test('a form that discards typed data reports failure instead of a false success
   const fixture = page();
   fixture.password.dispatchEvent = () => { fixture.password.stored = ''; };
   assert.notEqual(fixture.invoke({ username: 'alice', password: 'test-secret' }), 'ok');
+});
+
+test('refusal diagnostics are specific but never include page-generated text or exception descriptions', async () => {
+  const fixture = page();
+  fixture.password.disabled = true; assert.equal(fixture.invoke(null), 'unavailable');
+  fixture.password.disabled = false; fixture.password.form.action = 'https://other.example';
+  assert.equal(fixture.invoke(null), 'action');
+  const client = new CDP();
+  for (const reply of [{ result: { value: 'page-secret' } }, { exceptionDetails: { text: 'page-secret' } }]) {
+    client.call = async () => reply;
+    await assert.rejects(client.invoke('window', {}), error => error instanceof FillError && error.reason === 'failed' && !error.message.includes('page-secret'));
+  }
+  client.call = async () => ({ result: { value: 'mismatch' } });
+  await assert.rejects(client.invoke('window', {}), /page changed or discarded/);
 });
 
 test('password-only steps are supported; non-loopback debugging endpoints rejected', async () => {
