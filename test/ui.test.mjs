@@ -50,6 +50,30 @@ test('paste does not submit or toggle remember; masked dialog fits narrow widths
   dialog.handleInput('\x1b'); assert.equal(dialog.inputs[0].value, '');
 });
 
+test('named fields choose visible or masked entry; all requested fields must be completed', () => {
+  let result;
+  const dialog = new PrivateDialog(tui, theme, value => { result = value; }, 'https://example.com', [
+    { label: 'Account', hidden: false }, { label: 'Verification code (temporary)', hidden: true },
+  ]);
+  dialog.handleInput('VisibleAccount'); dialog.handleInput('\t');
+  assert.ok(dialog.render(80).join('\n').includes('VisibleAccount'));
+  dialog.handleInput('\r'); assert.equal(result, undefined);
+  dialog.handleInput('private-code');
+  assert.ok(!dialog.render(80).join('\n').includes('private-code'));
+  dialog.handleInput('\r'); assert.deepEqual(result, { values: ['VisibleAccount', 'private-code'], remember: false });
+  assert.ok(dialog.inputs.every(input => input.value === ''));
+});
+
+test('many-field dialogs keep the focused field visible; visible Unicode input fits narrow widths', () => {
+  const dialog = new PrivateDialog(tui, theme, () => {}, 'https://example.com',
+    Array.from({ length: 12 }, (_, index) => ({ label: `Field ${index + 1}`, hidden: false })));
+  for (let i = 0; i < 11; i++) dialog.handleInput('\t');
+  assert.ok(dialog.render(60).join('\n').includes('Field 12/12'));
+  dialog.handleInput('Visible🔑Unicode');
+  for (const width of [1, 2, 5, 60]) assert.ok(dialog.render(width).every(line => visibleWidth(line) <= width));
+  dialog.dispose(); assert.ok(dialog.inputs.every(input => !input.value));
+});
+
 test('saved-only approval modes and fail-closed invalid mode', () => {
   const approved = new Set(['a']);
   assert.equal(needsApproval('ask', approved, 'a'), true);

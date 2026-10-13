@@ -84,6 +84,30 @@ test('a disappeared vault is not silently recreated; a new writer cannot overwri
   await assert.rejects(vault.save('https://example.net', 'third', 'secret'), /disappeared/);
 });
 
+test('generic fields extend existing vaults; temporary fields are never persisted and reusable saves replace only exact matches', async t => {
+  const vault = await fixture(t);
+  const origin = 'https://example.com';
+  const field = { label: 'Account ID', selector: '#account', hidden: false, temporary: false, value: 'private-account' };
+  const temporary = { label: 'Verification code', selector: '#code', hidden: true, temporary: true, value: 'never-persist-code' };
+  assert.deepEqual(await vault.saveFields(origin, [temporary]), []);
+  await vault.unlock(master);
+  await vault.save(origin, 'legacy-user', 'legacy-password');
+  const [id] = await vault.saveFields(origin, [field, temporary]);
+  let data = await vault.read();
+  assert.equal(data.accounts.length, 1); assert.equal(data.fields.length, 1);
+  assert.equal(data.fields[0].value, field.value);
+  assert.ok(!JSON.stringify(data).includes(temporary.value));
+  await vault.saveFields(origin, [{ ...field, value: 'updated-account' }]);
+  data = await vault.read(); assert.equal(data.fields.length, 1); assert.equal(data.fields[0].id, id);
+  await vault.saveFields('https://other.example', [field]);
+  assert.equal((await vault.read()).fields.length, 2);
+  const encrypted = await readFile(vault.file, 'utf8');
+  for (const value of ['private-account', 'updated-account', 'Account ID', temporary.value]) assert.ok(!encrypted.includes(value));
+  vault.lock(); await vault.unlock(master);
+  assert.equal((await vault.read()).accounts[0].password, 'legacy-password');
+  assert.equal((await vault.read()).fields[0].value, 'updated-account');
+});
+
 test('exact HTTPS origin: reject paths, userinfo, HTTP, subdomain confusion and normalization', () => {
   assert.equal(exactOrigin('https://example.com'), 'https://example.com');
   assert.equal(exactOrigin('https://example.com:8443'), 'https://example.com:8443');

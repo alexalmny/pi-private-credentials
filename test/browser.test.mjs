@@ -75,6 +75,29 @@ test('page exceptions never return their potentially secret text', () => {
   assert.equal(fixture.invoke({ username: 'user', password: 'secret' }), 'failed');
 });
 
+test('arbitrary text/code fields fill privately; alias selectors, unmasked passwords and non-text widgets are refused', () => {
+  const fixture = page();
+  const fields = [
+    { label: 'Account', selector: '#username', hidden: false, temporary: false },
+    { label: 'Code', selector: '#password', hidden: true, temporary: true },
+  ];
+  fixture.password.type = 'text';
+  assert.equal(fixture.invoke({ values: ['account-id', '123456'] }, { fields }), 'ok');
+  assert.equal(fixture.password.stored, '123456');
+  fixture.password.type = 'password'; fields[1].hidden = false;
+  assert.notEqual(fixture.invoke({ values: ['account-id', '123456'] }, { fields }), 'ok');
+  fields[1].hidden = true; fixture.password.type = 'checkbox';
+  assert.notEqual(fixture.invoke({ values: ['account-id', '123456'] }, { fields }), 'ok');
+  fixture.password.type = 'text'; fixture.fields['#alias'] = [fixture.password];
+  assert.notEqual(fixture.invoke({ values: ['one', 'two'] }, { fields: [fields[1], { ...fields[1], selector: '#alias' }] }), 'ok');
+});
+
+test('a form that discards typed data reports failure instead of a false success', () => {
+  const fixture = page();
+  fixture.password.dispatchEvent = () => { fixture.password.stored = ''; };
+  assert.notEqual(fixture.invoke({ username: 'alice', password: 'test-secret' }), 'ok');
+});
+
 test('password-only steps are supported; non-loopback debugging endpoints rejected', async () => {
   const fixture = page();
   assert.equal(fixture.invoke({ username: 'user', password: 'secret' }, { usernameSelector: undefined }), 'ok');

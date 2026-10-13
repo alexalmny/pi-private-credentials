@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { randomBytes, randomUUID, scrypt, createCipheriv, createDecipheriv } from 'node:crypto';
 import { promisify } from 'node:util';
 
+import { validateFields, fieldKey } from './fields.mjs';
+
 const derive = promisify(scrypt);
 const AAD = Buffer.from('pi-private-credentials:v1:scrypt-32768-8-1');
 const LIMIT = 8 * 1024 * 1024;
@@ -63,6 +65,19 @@ function validate(data) {
         typeof account.password !== 'string' || !account.password || account.password.length > 65536 ||
         account.username.length > 65536) throw new Error('Invalid account data.');
     ids.add(account.id);
+  }
+  if (data.fields !== undefined) {
+    if (!Array.isArray(data.fields) || data.fields.length > 1000) throw new Error('Invalid saved fields.');
+    const keys = new Set();
+    for (const field of data.fields) {
+      exactOrigin(field.origin);
+      validateFields([{ ...field, temporary: false }]);
+      const key = JSON.stringify([field.origin, fieldKey(field)]);
+      if (typeof field.id !== 'string' || ids.has(field.id) || keys.has(key) ||
+          typeof field.value !== 'string' || !field.value || field.value.length > 65536 || field.temporary !== undefined)
+        throw new Error('Invalid saved field data.');
+      ids.add(field.id); keys.add(key);
+    }
   }
   return data;
 }
@@ -140,6 +155,27 @@ export class Vault {
       await unlink(temp).catch(() => {});
       await rmdir(lockDir);
     }
+  }
+
+  // One reusable value per exact origin/label/selector/visibility; saving explicitly replaces it.
+  async saveFields(origin, fields) {
+    exactOrigin(origin);
+    validateFields(fields);
+    const reusable = fields.filter(field => !field.temporary);
+    if (!reusable.length) return [];
+    const ids = [];
+    await this.mutate(data => {
+      data.fields ??= [];
+      for (const field of reusable) {
+        const existing = data.fields.find(saved => saved.origin === origin && fieldKey(saved) === fieldKey(field));
+        if (existing) { existing.value = field.value; ids.push(existing.id); }
+        else {
+          const saved = { id: randomUUID(), origin, label: field.label, selector: field.selector, hidden: field.hidden, value: field.value };
+          data.fields.push(saved); ids.push(saved.id);
+        }
+      }
+    });
+    return ids;
   }
 
   async save(origin, username, password) {

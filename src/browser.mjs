@@ -106,33 +106,41 @@ export class CDP {
 export function fillFields(config, credential) {
   try {
     if (location.origin !== config.origin || location.protocol !== 'https:') return 'origin';
-    const find = (selector, password) => {
+    const fields = config.fields ?? [
+      ...(config.usernameSelector ? [{ selector: config.usernameSelector, hidden: true }] : []),
+      { selector: config.passwordSelector, hidden: true, mustBePassword: true },
+    ];
+    const find = field => {
+      const selector = field.selector;
       const matches = document.querySelectorAll(selector);
       if (matches.length !== 1) return null;
       const input = matches[0];
-      if (!(input instanceof HTMLInputElement) || input.disabled || input.readOnly ||
-          !input.getClientRects().length || getComputedStyle(input).visibility !== 'visible' ||
-          (password ? input.type !== 'password' : !['text', 'email', 'tel'].includes(input.type))) return null;
+      const textArea = typeof HTMLTextAreaElement !== 'undefined' && input instanceof HTMLTextAreaElement;
+      if (!(input instanceof HTMLInputElement) && !textArea) return null;
+      if (input.disabled || input.readOnly || !input.getClientRects().length || getComputedStyle(input).visibility !== 'visible' ||
+          (field.mustBePassword ? input.type !== 'password' : !textArea && !['text', 'email', 'tel', 'password', 'number', 'url', 'search'].includes(input.type)) ||
+          (input.type === 'password' && !field.hidden)) return null;
       if (input.form && new URL(input.form.action, location.href).origin !== config.origin) return null;
       return input;
     };
-    const password = find(config.passwordSelector, true);
-    const username = config.usernameSelector ? find(config.usernameSelector, false) : null;
-    if (!password || (config.usernameSelector && !username)) return 'fields';
+    const inputs = fields.map(find);
+    if (!inputs.length || inputs.some(input => !input) || new Set(inputs).size !== inputs.length) return 'fields';
     if (!credential) return 'ok';
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    const values = config.fields ? credential.values : (config.usernameSelector ? [credential.username, credential.password] : [credential.password]);
+    if (!Array.isArray(values) || values.length !== fields.length || values.some(value => typeof value !== 'string')) return 'fields';
+    const written = new Set();
     // Notify each field before writing the next: controlled forms can rerender other inputs.
-    for (const [selector, value, isPassword] of [
-      [config.usernameSelector, credential.username, false], [config.passwordSelector, credential.password, true],
-    ]) {
-      if (!selector) continue;
+    for (const [index, field] of fields.entries()) {
       if (location.origin !== config.origin || location.protocol !== 'https:') return 'origin';
-      const input = find(selector, isPassword);
-      if (!input) return 'fields';
-      setter.call(input, value);
+      const input = find(field);
+      if (!input || written.has(input)) return 'fields';
+      written.add(input);
+      const prototype = input instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
+      Object.getOwnPropertyDescriptor(prototype, 'value').set.call(input, values[index]);
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
     }
-    return 'ok';
+    if (location.origin !== config.origin || location.protocol !== 'https:') return 'origin';
+    return fields.every((field, index) => find(field)?.value === values[index]) ? 'ok' : 'fields';
   } catch { return 'failed'; }
 }

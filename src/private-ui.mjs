@@ -1,9 +1,10 @@
-import { CURSOR_MARKER, renderFakeCursor, matchesKey, decodeKittyPrintable, truncateToWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui';
+import { CURSOR_MARKER, renderFakeCursor, matchesKey, decodeKittyPrintable, truncateToWidth, wrapTextWithAnsi, visibleWidth } from '@earendil-works/pi-tui';
 
 const segments = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
-// Pi's Input has no masked mode. Keep secret text out of every render path.
+// Pi's Input has no masked mode and retains undo history; private fields use neither undo nor a kill ring.
 export class MaskedInput {
+  constructor(hidden = true) { this.hidden = hidden; }
   value = '';
   cursor = 0;
   focused = false;
@@ -43,6 +44,14 @@ export class MaskedInput {
   }
   clear() { this.value = ''; this.cursor = 0; this.paste = null; }
   render(width) {
+    if (!this.hidden) {
+      const parts = [...segments.segment(this.value)].map(part => part.segment);
+      let start = this.cursor; let used = 0;
+      while (start > 0 && used + visibleWidth(parts[start - 1]) <= Math.max(0, width - 2)) used += visibleWidth(parts[--start]);
+      const current = parts[this.cursor] ?? ' ';
+      return truncateToWidth(parts.slice(start, this.cursor).join('') +
+        (this.focused ? CURSOR_MARKER + renderFakeCursor(current) : current) + parts.slice(this.cursor + 1).join(''), width, '');
+    }
     const length = [...segments.segment(this.value)].length;
     const start = Math.max(0, this.cursor - Math.max(0, width - 1));
     const before = '*'.repeat(Math.max(0, this.cursor - start));
@@ -58,8 +67,11 @@ export class PrivateDialog {
   error = '';
   finished = false;
   constructor(tui, theme, done, title, labels, allowRemember = false, signal) {
-    Object.assign(this, { tui, theme, done, title, labels, allowRemember, signal });
-    this.inputs = labels.map(() => new MaskedInput());
+    Object.assign(this, { tui, theme, done, title, allowRemember, signal });
+    this.fields = labels.map((field, index) => typeof field === 'string' ?
+      { label: field, hidden: true, required: index === labels.length - 1 } : { ...field, required: field.required ?? true });
+    this.labels = this.fields.map(field => field.label);
+    this.inputs = this.fields.map(field => new MaskedInput(field.hidden));
     this.abort = () => this.finish(undefined);
     signal?.addEventListener('abort', this.abort, { once: true });
     if (signal?.aborted) queueMicrotask(this.abort);
@@ -81,19 +93,23 @@ export class PrivateDialog {
       this.index = (this.index + (matchesKey(data, 'tab') ? 1 : count - 1)) % count;
     } else if (!input && matchesKey(data, 'space')) this.remember = !this.remember;
     else if (matchesKey(data, 'return')) {
-      if (!this.inputs.at(-1).value) this.error = 'A password is required.';
+      const empty = this.inputs.findIndex((input, index) => this.fields[index].required && !input.value);
+      if (empty >= 0) { this.index = empty; this.error = `${this.labels[empty]} is required.`; }
       else this.finish({ values: this.inputs.map(field => field.value), remember: this.remember });
     } else input?.handleInput(data);
     this.tui.requestRender();
   }
   render(width) {
     const lines = [this.theme.fg('accent', 'Private credentials'), ...this.title.split('\n').flatMap(line => wrapTextWithAnsi(line, Math.max(1, width))), ''];
+    const active = Math.min(this.index, this.inputs.length - 1);
+    if (this.inputs.length > 3) lines.push(`Field ${active + 1}/${this.inputs.length} (Tab to review each field)`);
     this.inputs.forEach((input, index) => {
       input.focused = this.focused && this.index === index;
+      if (this.inputs.length > 3 && index !== active) return;
       lines.push(this.labels[index]);
       lines.push(input.render(Math.max(1, width)));
     });
-    if (this.allowRemember) lines.push(`${this.index === this.inputs.length ? '> ' : '  '}[${this.remember ? 'x' : ' '}] Remember in encrypted vault`);
+    if (this.allowRemember) lines.push(`${this.index === this.inputs.length ? '> ' : '  '}[${this.remember ? 'x' : ' '}] Remember eligible fields in encrypted vault`);
     lines.push('', 'Tab: next  Space: toggle  Enter: fill/confirm', 'Esc: cancel  Ctrl+U: clear current field', this.error);
     return lines.map(line => truncateToWidth(line, width, ''));
   }
