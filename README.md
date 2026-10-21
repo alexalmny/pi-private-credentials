@@ -171,9 +171,15 @@ Used hidden values (and legacy passwords) are also filtered from final tool-resu
 
 ```sh
 # Host peer packages need to be available for standalone Node tests.
-npm install --ignore-scripts
+npm ci --ignore-scripts
 npm test
 ```
+
+[CI](.github/workflows/ci.yml) runs these installation and test commands on
+Node.js 22 for pushes to `main` and pull requests, without real credentials or
+browser profiles. `package-lock.json` fixes the standalone test dependency set;
+Pi still supplies its own host peers when loading the extension. The optional
+real-Chrome check below is not part of CI.
 
 The tests cover encryption, authentication/tampering, permissions, multi-writer updates, origin/field checks, controlled-form rerenders, visible/masked rendering, Unicode/paste handling, cancellation, reuse policies, redaction, legacy compatibility, temporary-field non-storage/non-reuse, secret-free refusal reasons, Pi-style helper reloads, themed inline/review layouts, focused scrolling, overlay stacking, resize protection, and approval-menu cancellation. Refusals now identify the actual failed check; page-generated exception strings remain suppressed.
 
