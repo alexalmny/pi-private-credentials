@@ -5,6 +5,7 @@ import { randomBytes, randomUUID, scrypt, createCipheriv, createDecipheriv } fro
 import { promisify } from 'node:util';
 
 import { validateFields, fieldKey } from './fields.ts';
+import { windowsPrivate } from './permissions.ts';
 
 const derive = promisify(scrypt);
 const AAD = Buffer.from('pi-private-credentials:v1:scrypt-32768-8-1');
@@ -19,24 +20,36 @@ export function exactOrigin(value) {
 }
 
 async function privateDirectory(dir) {
-  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const created = await mkdir(dir, { recursive: true, mode: 0o700 });
   const stat = await lstat(dir);
-  if (!stat.isDirectory() || (stat.mode & 0o077) || (process.getuid && stat.uid !== process.getuid()))
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('Unsafe vault directory: links are refused.');
+  if (process.platform === 'win32') await windowsPrivate(dir, created !== undefined);
+  else if ((stat.mode & 0o077) || (process.getuid && stat.uid !== process.getuid()))
     throw new Error('Vault directory must be owned by you, not a symlink, and have mode 0700.');
 }
 
 async function readPrivate(file) {
   let handle;
   try {
-    handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    if (process.platform === 'win32') {
+      if (!(await lstat(file)).isFile()) throw new Error('Links are refused.');
+      await windowsPrivate(file);
+    }
+    handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
   } catch (error) {
     if (error.code === 'ENOENT') return undefined;
-    throw new Error('Cannot safely open vault.');
+    throw new Error('Cannot safely open vault: unsafe permissions or link.');
   }
   try {
     const stat = await handle.stat();
-    if (!stat.isFile() || stat.size > LIMIT || (stat.mode & 0o077) ||
-        (process.getuid && stat.uid !== process.getuid())) throw new Error('Unsafe vault permissions or size.');
+    if (!stat.isFile() || stat.size > LIMIT || (process.platform !== 'win32' &&
+        ((stat.mode & 0o077) || (process.getuid && stat.uid !== process.getuid()))))
+      throw new Error('Unsafe vault permissions or size.');
+    if (process.platform === 'win32') {
+      const pathStat = await lstat(file);
+      if (!pathStat.isFile() || pathStat.ino !== stat.ino || pathStat.dev !== stat.dev)
+        throw new Error('Cannot safely open vault: file changed.');
+    }
     return await handle.readFile('utf8');
   } finally { await handle.close(); }
 }
@@ -149,8 +162,11 @@ export class Vault {
       try { await handle.writeFile(text); await handle.sync(); } finally { await handle.close(); }
       await rename(temp, this.file);
       this.persisted = true;
-      const directory = await open(this.dir, constants.O_RDONLY);
-      try { await directory.sync(); } finally { await directory.close(); }
+      // Windows cannot open/fsync directories; the file is still synced before atomic rename.
+      if (process.platform !== 'win32') {
+        const directory = await open(this.dir, constants.O_RDONLY);
+        try { await directory.sync(); } finally { await directory.close(); }
+      }
     } finally {
       await unlink(temp).catch(() => {});
       await rmdir(lockDir);

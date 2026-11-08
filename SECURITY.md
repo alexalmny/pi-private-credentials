@@ -6,6 +6,12 @@ Private TUI input plus direct CDP filling keeps entered values out of this exten
 
 This assumes trusted Pi, trusted installed extensions, trusted OS/browser/MCP, and a legitimate login page. It is not a security boundary against a malicious agent with unrestricted tools.
 
+## Filesystem permissions
+
+Linux/macOS keep the existing owner and POSIX mode checks. Windows checks ACLs through the system Windows PowerShell executable, using SID identities rather than localized account names. New vault directories disable ACL inheritance and grant inheritable FullControl only to the current user. Existing directories/files must be owned by that user, grant the user FullControl, and have no Allow entries outside that user, SYSTEM, or Administrators. Reparse points are refused. Unsafe existing ACLs are not automatically repaired. An unavailable ACL checker or unsupported filesystem fails closed. Administrator/SYSTEM access remains within the trusted-OS boundary.
+
+Windows syncs the temporary file before rename but cannot fsync the containing directory through Node; sudden power loss may therefore lose the most recent rename. Linux/macOS retain directory fsync. Neither implementation defends against a malicious local process racing filesystem operations, filesystem rollback, or a privileged administrator.
+
 ## What is not protected
 
 - Chrome must receive the plaintext. The receiving website can read/exfiltrate credentials; exact-origin checks do not make a compromised site safe.

@@ -4,11 +4,22 @@ import { mkdtemp, readFile, writeFile, stat, chmod, rm, mkdir, symlink } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Vault, exactOrigin } from '../src/vault.ts';
+import { windowsPrivate } from '../src/permissions.ts';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+const run = promisify(execFile);
+const windows = process.platform === 'win32';
+async function grantEveryone(path) {
+  await run('icacls.exe', [path, '/grant', '*S-1-1-0:(R)'], { windowsHide: true });
+}
+async function revokeEveryone(path) {
+  await run('icacls.exe', [path, '/remove:g', '*S-1-1-0'], { windowsHide: true });
+}
 
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'pi-vault-test-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  return new Vault(dir);
+  return new Vault(join(dir, 'vault'));
 }
 const master = 'test-only long master passphrase';
 
@@ -18,8 +29,13 @@ test('encrypted roundtrip; plaintext and usernames are absent; restrictive permi
   await vault.save('https://example.com', 'private-user', 'test-password');
   const text = await readFile(vault.file, 'utf8');
   for (const secret of ['private-user', 'test-password', master, 'example.com']) assert.ok(!text.includes(secret));
-  assert.equal((await stat(vault.file)).mode & 0o777, 0o600);
-  assert.equal((await stat(vault.dir)).mode & 0o777, 0o700);
+  if (windows) {
+    await windowsPrivate(vault.dir);
+    await windowsPrivate(vault.file);
+  } else {
+    assert.equal((await stat(vault.file)).mode & 0o777, 0o600);
+    assert.equal((await stat(vault.dir)).mode & 0o777, 0o700);
+  }
   vault.lock();
   await assert.rejects(vault.read(), /locked/);
   await vault.unlock(master);
@@ -27,6 +43,26 @@ test('encrypted roundtrip; plaintext and usernames are absent; restrictive permi
   await vault.save('https://example.com', 'private-user', 'replacement');
   assert.equal((await vault.read()).accounts.length, 1);
   assert.equal((await vault.read()).accounts[0].password, 'replacement');
+});
+
+test('existing unsafe directories are refused, not silently repaired', async t => {
+  const vault = await fixture(t);
+  await mkdir(vault.dir, { mode: 0o700 });
+  if (windows) await grantEveryone(vault.dir);
+  else await chmod(vault.dir, 0o755);
+  await assert.rejects(vault.unlock(master), /permissions|0700/);
+  await assert.rejects(vault.unlock(master), /permissions|0700/);
+});
+
+test('private directories support literal Unicode paths and refuse directory links', async t => {
+  const vault = await fixture(t);
+  const literal = new Vault(join(vault.dir, "café ' $literal [vault]"));
+  await literal.unlock(master);
+  await literal.save('https://example.com', 'user', 'synthetic-secret');
+  assert.equal((await literal.read()).accounts[0].password, 'synthetic-secret');
+  const link = join(vault.dir, 'linked-vault');
+  await symlink(literal.dir, link, windows ? 'junction' : 'dir');
+  await assert.rejects(new Vault(link).unlock(master), /link/);
 });
 
 test('wrong passphrase and authenticated ciphertext tampering fail without overwriting', async t => {
@@ -66,11 +102,25 @@ test('two writers merge fresh data; lock blocks writes; permissions and symlinks
   const lock = join(vault.dir, 'write.lock'); await mkdir(lock);
   await assert.rejects(vault.save('https://example.com', 'fourth', 'secret'), /busy/);
   await rm(lock, { recursive: true });
-  await chmod(vault.file, 0o644); await assert.rejects(vault.read(), /permissions/);
-  await chmod(vault.file, 0o600);
+  if (windows) {
+    await grantEveryone(vault.file);
+    await assert.rejects(vault.read(), /permissions/);
+    await revokeEveryone(vault.file);
+    await grantEveryone(vault.dir);
+    await assert.rejects(other.unlock(master), /permissions/);
+    await revokeEveryone(vault.dir);
+  } else {
+    await chmod(vault.file, 0o644); await assert.rejects(vault.read(), /permissions/);
+    await chmod(vault.file, 0o600);
+  }
   const text = await readFile(vault.file); await rm(vault.file);
   await writeFile(join(vault.dir, 'target'), text, { mode: 0o600 });
-  await symlink(join(vault.dir, 'target'), vault.file);
+  try { await symlink(join(vault.dir, 'target'), vault.file); }
+  catch (error) {
+    if (!windows || error.code !== 'EPERM') throw error;
+    // Unprivileged Windows can create junctions even when file symlinks require Developer Mode.
+    await symlink(vault.dir, vault.file, 'junction');
+  }
   await assert.rejects(vault.read(), /safely/);
 });
 

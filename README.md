@@ -6,7 +6,7 @@ A Pi TUI extension that lets the agent request named form fields **without putti
 
 ## Install
 
-Requires Node.js 22.6+, current `@earendil-works/pi-coding-agent`, interactive Pi TUI, and a local Chrome DevTools MCP browser. Not compatible with Telegram, print mode, or RPC credential dialogs.
+Requires Node.js 22.6+, current `@earendil-works/pi-coding-agent`, interactive Pi TUI, and a local Chrome DevTools MCP browser. Windows additionally requires Windows PowerShell and a filesystem supporting Windows ACLs (such as NTFS). Not compatible with Telegram, print mode, or RPC credential dialogs.
 
 ```sh
 # Private repository: your git client needs GitHub access.
@@ -154,8 +154,9 @@ With a custom Pi agent directory, the vault follows it. Nothing is stored in ses
 - AES-256-GCM authenticated encryption; random nonce per write.
 - scrypt master-key derivation: N=32768, r=8, p=1, random 16-byte salt.
 - Usernames, passwords, generic field values and metadata, origins, and reuse policy are all encrypted. Temporary fields are never persisted.
-- Directory permissions 0700, vault permissions 0600; unsafe permissions and vault symlinks are refused.
-- Exclusive writer lock; fresh disk reads, temporary file + fsync + atomic rename to avoid partial writes/lost updates between ordinary sessions.
+- Linux/macOS: directory permissions 0700, vault permissions 0600; unsafe permissions and symlinks are refused.
+- Windows: new vault directories get a protected, current-user-only ACL inherited by vault files. Existing directories/files must be owned by the current user and grant access only to that user, SYSTEM, or Administrators; broad ACLs and reparse points (including junctions) are refused, never silently repaired. Paths with spaces or Unicode are supported. Windows mode bits are not used as a security check.
+- Exclusive writer lock; fresh disk reads, temporary file + fsync + atomic rename to avoid partial writes/lost updates between ordinary sessions. Directory fsync is retained on Linux/macOS; Windows does not support it through Node, so sudden power loss has a weaker durability guarantee after rename.
 
 Back up the encrypted vault if needed. Account deletion is not secure erasure of filesystem history or backups. Locking does not sign out websites, clear browser fields, or erase cookies. If a process crashes while writing, remove `private-credentials/write.lock` **only after stopping all Pi writers**. Do not reset/delete your vault as an unlock troubleshooting step.
 
@@ -176,7 +177,7 @@ npm test
 ```
 
 [CI](.github/workflows/ci.yml) runs these installation and test commands on
-Node.js 22 for pushes to `main` and pull requests, without real credentials or
+Node.js 22 on Linux and Windows for pushes to `main` and pull requests, without real credentials or
 browser profiles. `package-lock.json` fixes the standalone test dependency set;
 Pi still supplies its own host peers when loading the extension. The optional
 real-Chrome check below is not part of CI.
@@ -195,7 +196,7 @@ The Chrome MCP distribution's `build/src/third_party/index.js` exports Puppeteer
 
 ## Current limits
 
-- Local Chrome, Linux/macOS-style private file permissions, and interactive Pi terminal only.
+- Local Chrome and interactive Pi terminal only. Linux/macOS require POSIX private permissions; Windows requires Windows PowerShell and ACL support. Existing unsafe vault permissions are refused rather than automatically changed.
 - Top-level text-like inputs and single-line textarea entry only. No iframe/shadow-root traversal, multiline entry, non-text widgets, OTP generation, or automatic submission. Verification-code entry is supported, but this is not an authenticator app.
 - Native input setters and input/change events cover standard and many framework forms; some sites require custom typing behavior.
 - No master-passphrase rotation/import/export UI yet.
