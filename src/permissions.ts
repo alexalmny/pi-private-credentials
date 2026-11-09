@@ -11,16 +11,22 @@ $item = Get-Item -LiteralPath $p -Force
 if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse point refused' }
 $me = [Security.Principal.WindowsIdentity]::GetCurrent().User
 $acl = Get-Acl -LiteralPath $p
-if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $me.Value) { throw 'Wrong owner' }
 if ($env:PI_VAULT_ACL_CREATE -eq '1') {
-  $acl = New-Object Security.AccessControl.DirectorySecurity
+  # Elevated Windows tokens may default new objects to the Administrators owner.
+  if ($item.PSIsContainer) {
+    $acl = New-Object Security.AccessControl.DirectorySecurity
+    $rule = [Security.AccessControl.FileSystemAccessRule]::new($me, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+  } else {
+    $acl = New-Object Security.AccessControl.FileSecurity
+    $rule = [Security.AccessControl.FileSystemAccessRule]::new($me, 'FullControl', 'Allow')
+  }
   $acl.SetOwner($me)
   $acl.SetAccessRuleProtection($true, $false)
-  $rule = [Security.AccessControl.FileSystemAccessRule]::new($me, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
   $acl.AddAccessRule($rule)
   Set-Acl -LiteralPath $p -AclObject $acl
   $acl = Get-Acl -LiteralPath $p
 }
+if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $me.Value) { throw 'Wrong owner' }
 $allowed = @($me.Value, 'S-1-5-18', 'S-1-5-32-544')
 $ownAccess = $false
 foreach ($rule in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {

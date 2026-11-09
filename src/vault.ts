@@ -159,7 +159,11 @@ export class Vault {
         tag: cipher.getAuthTag().toString('base64'), body: body.toString('base64') });
       if (Buffer.byteLength(text) > LIMIT) throw new Error('Vault size limit reached.');
       const handle = await open(temp, 'wx', 0o600);
-      try { await handle.writeFile(text); await handle.sync(); } finally { await handle.close(); }
+      try {
+        if (process.platform === 'win32') await windowsPrivate(temp, true);
+        await handle.writeFile(text);
+        await handle.sync();
+      } finally { await handle.close(); }
       await rename(temp, this.file);
       this.persisted = true;
       // Windows cannot open/fsync directories; the file is still synced before atomic rename.
