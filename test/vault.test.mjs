@@ -45,6 +45,25 @@ test('encrypted roundtrip; plaintext and usernames are absent; restrictive permi
   assert.equal((await vault.read()).accounts[0].password, 'replacement');
 });
 
+test('Windows ACL checks ignore incompatible modules exported by a parent shell', { skip: !windows }, async t => {
+  const vault = await fixture(t);
+  const modules = join(vault.dir, '..', 'modules');
+  const module = join(modules, 'Microsoft.PowerShell.Security');
+  await mkdir(module, { recursive: true });
+  await writeFile(join(module, 'Microsoft.PowerShell.Security.psd1'), "@{ RootModule = 'broken.psm1'; ModuleVersion = '99.0'; FunctionsToExport = @('Get-Acl') }");
+  await writeFile(join(module, 'broken.psm1'), "function Get-Acl { throw 'Incompatible parent module loaded' }; Export-ModuleMember -Function Get-Acl");
+  const original = process.env.PSModulePath;
+  try {
+    process.env.PSModulePath = modules;
+    await vault.unlock(master);
+    await vault.save('https://example.com', 'user', 'synthetic-secret');
+    assert.equal((await vault.read()).accounts[0].password, 'synthetic-secret');
+  } finally {
+    if (original === undefined) delete process.env.PSModulePath;
+    else process.env.PSModulePath = original;
+  }
+});
+
 test('existing unsafe directories are refused, not silently repaired', async t => {
   const vault = await fixture(t);
   await mkdir(vault.dir, { mode: 0o700 });

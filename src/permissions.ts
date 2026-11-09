@@ -9,12 +9,16 @@ $ErrorActionPreference = 'Stop'
 $stage = 'inspect'
 try {
 $p = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:PI_VAULT_ACL_PATH))
+$stage = 'get-item'
 $item = Get-Item -LiteralPath $p -Force
 if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse point refused' }
+$stage = 'identity'
 $me = [Security.Principal.WindowsIdentity]::GetCurrent().User
+$stage = 'get-acl'
 $acl = Get-Acl -LiteralPath $p
 if ($env:PI_VAULT_ACL_CREATE -eq '1') {
   # Elevated Windows tokens may default new objects to the Administrators owner.
+  $stage = 'create-acl'
   if ($item.PSIsContainer) {
     $acl = New-Object Security.AccessControl.DirectorySecurity
     $rule = [Security.AccessControl.FileSystemAccessRule]::new($me, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
@@ -47,14 +51,17 @@ if (-not $ownAccess) { throw 'Missing owner access' }
 `;
 
 export async function windowsPrivate(path, create = false) {
+  // A pwsh parent can export incompatible PowerShell 7 modules to Windows PowerShell 5.1.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== 'psmodulepath'));
+  env.PSModulePath = join(process.env.SystemRoot || 'C:/Windows', 'System32/WindowsPowerShell/v1.0/Modules');
   try {
     await run(join(process.env.SystemRoot || 'C:/Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'),
       ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
-      { windowsHide: true, timeout: 10000, maxBuffer: 16384, env: { ...process.env,
+      { windowsHide: true, timeout: 10000, maxBuffer: 16384, env: { ...env,
         PI_VAULT_ACL_PATH: Buffer.from(path, 'utf8').toString('base64'), PI_VAULT_ACL_CREATE: create ? '1' : '0' } });
   } catch (error) {
     const stage = String(error.stdout ?? '').trim();
-    const reason = ['inspect', 'set-acl', 'read-acl', 'owner', 'rules'].includes(stage) ? ` (${stage})` : '';
+    const reason = ['inspect', 'get-item', 'identity', 'get-acl', 'create-acl', 'set-acl', 'read-acl', 'owner', 'rules'].includes(stage) ? ` (${stage})` : '';
     throw new Error(`Unsafe vault permissions${reason}: Windows ACL must be owned by you and allow only your account, SYSTEM or Administrators; links are refused.`);
   }
 }
