@@ -9,9 +9,18 @@ A Pi TUI extension that lets the agent request named form fields **without putti
 Requires Node.js 22.6+, current `@earendil-works/pi-coding-agent`, interactive Pi TUI, and a local Chrome DevTools MCP browser. Windows additionally requires Windows PowerShell and a filesystem supporting Windows ACLs (such as NTFS). Not compatible with Telegram, print mode, or RPC credential dialogs.
 
 ```sh
-# Private repository: your git client needs GitHub access.
+pi install npm:pi-private-credentials
+```
+
+The npm package uses the `pi-package` keyword for discovery in the
+[Pi package gallery](https://pi.dev/packages). You can also install directly
+from the public GitHub repository:
+
+```sh
 pi install git:github.com/alexalmny/pi-private-credentials
 ```
+
+Choose one source, not both, to avoid loading the extension twice.
 
 For development / immediate local iteration:
 
@@ -21,6 +30,25 @@ pi install ./pi-private-credentials
 ```
 
 No runtime dependencies beyond Node.js and Pi's host packages.
+
+### Updates
+
+Use an unpinned npm or Git source as shown above to receive updates. Current Pi
+checks managed packages for updates and shows its built-in **Package Updates
+Available** notice. Install updates with:
+
+```sh
+pi update --extensions
+```
+
+Restart Pi afterward. On the next fresh launch, Pi shows new entries from
+[CHANGELOG.md](CHANGELOG.md) under **Extension Updates**. The first launch records
+the installed version without showing historical entries. No extension-specific
+update checker or background network request is needed.
+
+Exact npm versions and Git tags/commits stay pinned. Local-path installations
+load the working tree directly; `pi update --extensions` does not pull changes
+into that tree.
 
 ## Configure the shared Chrome browser
 
@@ -191,6 +219,9 @@ PI_CREDENTIALS_TEST_PUPPETEER=/absolute/path/to/module-exporting-puppeteer.js \
 PI_CREDENTIALS_TEST_CHROME=/path/to/chrome \
 node --experimental-strip-types test/live.mjs
 ```
+
+Run this from a Git checkout; tests and CI files are intentionally excluded from
+the npm package by its explicit file allowlist.
 
 The Chrome MCP distribution's `build/src/third_party/index.js` exports Puppeteer and can be used for this check. `openssl` is required. The test-only browser ignores its temporary certificate error; the production extension does not add any certificate bypass flags. The check simulates TUI key entry and drives a real browser; it is not a human terminal usability test.
 
